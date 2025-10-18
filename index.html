@@ -179,32 +179,23 @@
       const reader = new FileReader();
       reader.onload = (evt) => {
         try {
-          if (isCSV) {
-            // XLSX로 CSV 파싱(따옴표/콤마 안정적 처리)
-            const wb = XLSX.read(evt.target.result, { type: 'string' });
-            let raw = [];
-            wb.SheetNames.forEach(sheet => {
-              const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header: 1, defval: "" });
-              raw = raw.concat(rows);
-            });
-            parseData(raw, (keyInput.value||'').trim().toLowerCase());
-          } else {
-            const data = new Uint8Array(evt.target.result);
-            const wb = XLSX.read(data, { type: 'array' });
-            let raw = [];
-            wb.SheetNames.forEach(sheet => {
-              const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header: 1, defval: "" });
-              raw = raw.concat(rows);
-            });
-            parseData(raw, (keyInput.value||'').trim().toLowerCase());
-          }
+          // 모든 형식을 ArrayBuffer로 통일 처리 (CSV도 자동 인식)
+          const data = new Uint8Array(evt.target.result);
+          const wb = XLSX.read(data, { type: 'array' });
+          let raw = [];
+          wb.SheetNames.forEach(sheet => {
+            const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header: 1, defval: "" });
+            raw = raw.concat(rows);
+          });
+          parseData(raw, (keyInput.value||'').trim().toLowerCase());
         } catch (e) {
           console.error(e);
-          document.getElementById('warning').textContent = '❗ 파일 처리 중 오류가 발생했습니다. 파일 형식과 인코딩을 확인하세요.';
+          document.getElementById('warning').textContent = '❗ 파일 처리 중 오류가 발생했습니다. 파일 형식 또는 인코딩 문제일 수 있습니다. 엑셀에서 "다른 이름으로 저장" → XLSX 또는 CSV UTF-8로 저장 후 다시 시도하세요. 상세: ' + (e.message||e);
           status('오류가 발생했습니다.', true);
         }
       };
-      if (isCSV) reader.readAsText(file, 'utf-8'); else reader.readAsArrayBuffer(file);
+      // CSV/XLSX 모두 ArrayBuffer로 읽어 XLSX.read(type:'array')로 처리
+      reader.readAsArrayBuffer(file);
     }
 
     fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
