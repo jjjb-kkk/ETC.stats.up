@@ -334,9 +334,11 @@
             if (col['마취'] && (r[col['마취']]||'').includes('●')) injCountById[id]++;
           });
           const injCounts = 초진차트.map(id => injCountById[id] || 0);
-          const injDen = 초진차트.length || 0;
-          const injPct = (n) => asPct(injCounts.filter(v => v === n).length, injDen);
-          const inj8Plus = asPct(injCounts.filter(v => v >= 8).length, injDen);
+          // 분모를 '주사치료를 한 초진환자'로 한정해 합계가 100%가 되도록 수정
+          const injCountsNZ = injCounts.filter(v => v >= 1);
+          const injDen = injCountsNZ.length || 0; // 母수: 주사치료 경험(>=1회) 있는 초진환자 수
+          const injPct = (n) => asPct(injCountsNZ.filter(v => v === n).length, injDen);
+          const inj8Plus = asPct(injCountsNZ.filter(v => v >= 8).length, injDen);
 
           const 키워드수 = (col['메모'] && keyword)
             ? rows.filter(r => (r[col['메모']] || '').toLowerCase().includes(keyword)).length
