@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <title>/비트/외래 통계 자동 계산 도구 · 개선판 v3</title>
+  <title>/비트/외래 통계 자동 계산 도구 · 개선판 v2.1</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- xlsx: Excel/CSV 파서 -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -66,7 +66,7 @@
 <body>
   <header>
     <div class="wrap">
-      <h1>/비트/외래 통계 자동 계산기 · 개선판 v3</h1>
+      <h1>/비트/외래 통계 자동 계산기 · 개선판 v2.1</h1>
       <div class="controls">
         <div class="row">
           <label>✔️ 특정 키워드(예: PT만):</label>
@@ -196,11 +196,11 @@
       const file = files?.[0];
       if (!file) return;
 
-      // 업로드 시 자동으로 키워드 필터 초기화 → 전체 데이터 기준 계산 보장
-      keyInput.value = '';
-      keywordFilter.checked = false;
+      // ✅ 업로드 시 키워드 관련 설정 완전 초기화 (항상 전체 데이터 기준으로 계산 시작)
       localStorage.removeItem('keywordInput');
       localStorage.removeItem('keywordFilter');
+      keyInput.value = '';
+      keywordFilter.checked = false;
 
       status(`파일 분석 중: ${file.name}`);
       const reader = new FileReader();
@@ -273,7 +273,7 @@
       ].map(([label,key]) => `<span>${label}: <b>${col[key]||'미설정'}</b></span>`).join('');
       mapEl.innerHTML = kvs;
 
-      // 5) 필수 누락 시 수동 매핑 UI 제공 + 저장/복원
+      // 5) 필수 누락 시 수동 매핑 UI 제공(+저장/복원)
       const needManual = !col['초재'] || !col['차트'];
       const select = (id, label) => {
         return `<label style="display:block;margin:6px 0 4px;">${label}</label>
@@ -293,20 +293,20 @@
       if (needManual) {
         warning.innerHTML = '❗ 필수 열(초/재, 차트/ID)을 자동으로 찾지 못했습니다. 아래에서 직접 선택 후 “재계산”을 눌러주세요.';
         document.getElementById('manualMap').innerHTML = `
-          <div class=\"card\" style=\"margin-top:10px;\">
+          <div class="card" style="margin-top:10px;">
             ${select('m_chore','초/재 열 선택')}
             ${select('m_chart','차트/ID 열 선택')}
-            <details style=\"margin-top:8px;\">
+            <details style="margin-top:8px;">
               <summary>선택(옵션) 열</summary>
               ${select('m_dept','진료과 열 선택(선택)')}
               ${select('m_anes','마취/주사 열 선택(선택)')}
               ${select('m_memo','메모 열 선택(선택)')}
               ${select('m_age','연령/나이 열 선택(선택)')}
             </details>
-            <div style=\"margin-top:10px;display:flex;gap:8px;\">
-              <button id=\"recalcBtn\" class=\"primary\">재계산</button>
-              <button id=\"saveMapBtn\">매핑 저장</button>
-              <button id=\"clearMapBtn\">매핑 초기화</button>
+            <div style="margin-top:10px;display:flex;gap:8px;">
+              <button id="recalcBtn" class="primary">재계산</button>
+              <button id="saveMapBtn">매핑 저장</button>
+              <button id="clearMapBtn">매핑 초기화</button>
             </div>
           </div>`;
         document.getElementById('recalcBtn').onclick = () => {
@@ -330,6 +330,7 @@
         }); alert('매핑 저장 완료'); };
         document.getElementById('clearMapBtn').onclick = () => { localStorage.removeItem('colMap'); alert('매핑 삭제 완료'); };
       } else {
+        // 자동 매핑 성공 시 즉시 계산
         saveColToLocal(col);
         computeAndRender();
       }
@@ -338,7 +339,8 @@
       function computeAndRender(){
         currentColMap = col;
         let df0 = df;
-        // 키워드 필터(옵션)
+
+        // 키워드 필터(옵션) — 업로드 시 기본 초기화되므로 의도적 체크시에만 적용됨
         const memoKey = (col['메모']||'');
         if (keywordFilter.checked && memoKey && (keyword||'').length > 0) {
           df0 = df0.filter(r => (r[memoKey]||'').toLowerCase().includes(keyword));
@@ -347,59 +349,42 @@
         lastRows = df0;
         const result = [];
         const 재진조건 = ["재진", "물리치료내원", "진찰료 산정안함"]; // 필요 시 수정
+        const INJ_MARK = (injMarkInput.value || '●');
 
         const makeStat = (rows, label, ageGroup = "전체") => {
-          const injAvailable = !!col['마취'];
-          const 초진조건표 = ["신환","90일초진","초진","초진(신환)","초진환자"];
+          // ✅ 초진 인식 확대 (표기 차이 대응)
+          const 초진키 = ["신환","90일초진","초진","초진(신환)","초진환자"];
           const 초진Rows = rows.filter(r => {
             const v = String(r[col['초재']]||'');
-            return 초진조건표.some(s => v.includes(s));
+            return 초진키.some(s => v.includes(s));
           });
+
           const 초진차트 = [...new Set(초진Rows.map(r => r[col['차트']]).filter(Boolean))];
           const 재진Rows = rows.filter(r => 재진조건.includes(r[col['초재']]));
           const 재진차트 = [...new Set(재진Rows.map(r => r[col['차트']]).filter(Boolean))];
           const 총 = rows.length;
 
-          // 주사 표시는 마취 칼럼 내 마킹 문자 포함(초진 기준) — 자동 탐지 + 수동 입력 병행
-          let INJ_MARK = (injMarkInput.value || '●');
-          if (injAvailable) {
-            const detectInjMark = (rows, colName) => {
-              const freq = {};
-              rows.forEach(r => {
-                const raw = (r[colName] || '').trim();
-                if (!raw) return;
-                const norm = raw.replace(/\s+/g,'').replace(/○/g,'O');
-                const ch = norm[0];
-                freq[ch] = (freq[ch]||0)+1;
-              });
-              const top = Object.entries(freq).sort((a,b)=>b[1]-a[1])[0];
-              return top ? top[0] : '●';
-            };
-            if (!injMarkInput.value) {
-              INJ_MARK = detectInjMark(df0, col['마취']);
-              injMarkInput.value = INJ_MARK;
-              localStorage.setItem('injMark', INJ_MARK);
-            }
-          }
-
-          const 주사Rows = injAvailable ? (
-            초진Rows.filter(r => (r[col['마취']]||'').includes(INJ_MARK))
-          ) : [];
+          const injAvailable = !!col['마취'];
+          // 주사 표시는 마취 칼럼 내 지정 마커 포함(초진 기준)
+          const 주사Rows = injAvailable
+            ? 초진Rows.filter(r => (r[col['마취']]||'').includes(INJ_MARK))
+            : [];
           const 주사차트 = [...new Set(주사Rows.map(r => r[col['차트']]).filter(Boolean))];
-          const 주사기록 = rows.filter(r => 주사차트.includes(r[col['차트']]));
+          const 주사기록 = injAvailable ? rows.filter(r => 주사차트.includes(r[col['차트']])) : [];
 
-          // 환자별 횟수 집계
-          const countBy = (rows, key, cond = () => true) => rows.reduce((acc, r) => { const id = r[key]; if (!id) return acc; if (!acc[id]) acc[id] = 0; if (cond(r)) acc[id]++; return acc; }, {});
+          // 환자별 횟수 집계 (injAvailable 아닐 때는 빈 객체로 안전 처리)
+          const countBy = (rows, key, cond = () => true) =>
+            rows.reduce((acc, r) => { const id = r[key]; if (!id) return acc; if (!acc[id]) acc[id] = 0; if (cond(r)) acc[id]++; return acc; }, {});
           const 주사횟수 = injAvailable ? countBy(주사기록, col['차트'], r => (r[col['마취']]||'').includes(INJ_MARK)) : {};
           const 내원횟수 = countBy(주사기록, col['차트'], () => true);
 
           const mean = (obj) => { const ks = Object.keys(obj); if (!ks.length) return 0; return (ks.reduce((s,k)=>s+obj[k],0)/ks.length); };
-          const 평균주사 = injAvailable ? mean(주사횟수).toFixed(1) : '-';
-          const 평균내원 = injAvailable ? mean(내원횟수).toFixed(1) : '-';
+          const 평균주사 = injAvailable ? mean(주사횟수).toFixed(1) : "-";
+          const 평균내원 = injAvailable ? mean(내원횟수).toFixed(1) : "-";
 
           // 주사 횟수 분포(초진환자 중 주사경험자 기준)
-          let injPct = (n) => '-';
-          let inj8Plus = '-';
+          let injPct = (n) => "-";
+          let inj8Plus = "-";
           if (injAvailable) {
             const injCountById = {};
             rows.forEach(r => {
@@ -415,7 +400,7 @@
             inj8Plus = asPct(injCountsNZ.filter(v => v >= 8).length, injDen);
           }
 
-          const 키워드수 = (col['메모'] && keyword)
+          const 키워드수 = (col['메모'] && (keyword||'').length)
             ? rows.filter(r => (r[col['메모']] || '').toLowerCase().includes(keyword)).length
             : "";
 
@@ -429,7 +414,7 @@
             "초진 주사 처방률": injAvailable ? asPct(주사Rows.length, 초진차트.length || 0) : "-",
             "초진주사 갯수": injAvailable ? fmtInt(주사Rows.length) : "-",
             "초진 주사환자 재진율": injAvailable ? asPct(Object.values(내원횟수).filter(v => v >= 2).length, Object.keys(내원횟수).length || 0) : "-",
-            "초진주사환자 평균 주사횟수": injAvailable ? 평균주사 : "-",
+            "초진주사환자 평균 주사횟수": 평균주사,
             "1회": injAvailable ? injPct(1) : "-",
             "2회": injAvailable ? injPct(2) : "-",
             "3회": injAvailable ? injPct(3) : "-",
@@ -438,7 +423,7 @@
             "6회": injAvailable ? injPct(6) : "-",
             "7회": injAvailable ? injPct(7) : "-",
             "8회이상": injAvailable ? inj8Plus : "-",
-            "초진 주사환자 평균내원횟수": injAvailable ? 평균내원 : "-",
+            "초진 주사환자 평균내원횟수": 평균내원,
             "초진평균내원횟수": 초진평균내원횟수(rows, col, 초진차트).toFixed(1),
             "초진 재내원율": 재내원율(rows, col, 초진차트),
             "1회 내원 비율": 내원분포(rows, col, 초진차트, 1),
